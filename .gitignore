@@ -362,3 +362,5 @@ poetry.toml
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/python,linux,macos,visualstudiocode,pycharm,jupyternotebooks
+
+token_usage_logs/*.jsonl
