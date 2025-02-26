@@ -74,11 +74,49 @@ def get_model_response(messages: list[dict[str, Any]], model: str = "gpt-4o") ->
     )
     return chat_completion.choices[0].message.content # type: ignore
 
+# Modified function to track token usage
+def get_model_response_with_usage(messages: list[dict[str, Any]], model: str = "gpt-4o") -> tuple[str, dict]:
+    """Get model response and track token usage."""
+    messages = trim_messages(messages, 110000)
+    
+    chat_completion = client.chat.completions.create(
+        messages=messages, # type: ignore
+        model=model,
+    )
+    
+    # Extract usage statistics
+    usage = {
+        "prompt_tokens": chat_completion.usage.prompt_tokens,
+        "completion_tokens": chat_completion.usage.completion_tokens,
+        "total_tokens": chat_completion.usage.total_tokens
+    }
+    
+    return chat_completion.choices[0].message.content, usage
+
 
 @chz.chz
 class SimpleAgentSolver(PythonCodingSolver):
     name: str = "SimpleAgentSolver"
     model: str = "gpt-4o"
+    token_usage_log_dir: str = "token_usage_logs"
+    
+    @chz.init_property
+    def token_usage_log_file(self) -> str:
+        # Create a timestamped log file name
+        from datetime import datetime
+        import os
+        
+        # Create logs directory if it doesn't exist
+        os.makedirs(self.token_usage_log_dir, exist_ok=True)
+        
+        # Set the log file with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(
+            self.token_usage_log_dir, 
+            f"token_usage_{timestamp}.jsonl"
+        )
+        print(f"Token usage will be logged to: {log_file}")
+        return log_file
 
     def shortname(self) -> str:
         return "simple-solver"
@@ -91,10 +129,44 @@ class SimpleAgentSolver(PythonCodingSolver):
 
         async with alcatraz_env.build() as cluster:
             yield AlcatrazComputerInterface(cluster_value=cluster)
+    
+    def _log_token_usage(self, task_id: str, usage_data: dict) -> None:
+        """Log token usage data to a JSONL file."""
+        import json
+        from datetime import datetime
+        import os
+        
+        # Create a log entry with timestamp, task ID, and usage data
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "task_id": task_id,
+            "model": self.model,
+            "usage": {
+                "prompt_tokens": usage_data["prompt_tokens"],
+                "completion_tokens": usage_data["completion_tokens"],
+                "total_tokens": usage_data["total_tokens"],
+                "api_call_count": usage_data["api_call_count"]
+            }
+        }
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(self.token_usage_log_file), exist_ok=True)
+        
+        # Append to the JSONL file
+        with open(self.token_usage_log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
 
     @override
     async def run(self, task: ComputerTask) -> AsyncGenerator[Step | FinalResult, None]:
         try:
+            # Initialize token usage tracking for this task
+            task_token_usage = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "api_call_count": 0
+            }
+            
             async with self._start_computer(task) as computer:
                 print(computer)
                 # 1. Run the task setup
@@ -126,9 +198,15 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                 print(messages)
 
                 for remaining_turns in range(max_turns, 0, -1):
-                    model_response = get_model_response(messages)
+                    model_response, usage = get_model_response_with_usage(messages, self.model)
                     print(model_response)
-
+                    
+                    # Update token usage for this task
+                    task_token_usage["prompt_tokens"] += usage["prompt_tokens"]
+                    task_token_usage["completion_tokens"] += usage["completion_tokens"]
+                    task_token_usage["total_tokens"] += usage["total_tokens"]
+                    task_token_usage["api_call_count"] += 1  # Increment API call counter
+                    
                     messages.append({"role": "assistant", "content": model_response})
 
                     execution_output = None
@@ -173,6 +251,10 @@ Please note that the Python code is not a Jupyter notebook; you must write a ful
                         "role": "user",
                         "content": f"{execution_output}\nTurns left: {remaining_turns - 1}"
                     })
+                
+                # Log the total token usage for this task
+                self._log_token_usage(task.question_id, task_token_usage)
+                print(f"Token usage for task {task.question_id}: {task_token_usage}")
 
                 # 3. Grade and yield the final result
                 grade = await task.grade(computer)
