@@ -9,6 +9,7 @@ import argparse
 import nanoeval
 from nanoeval.evaluation import EvalSpec, RunnerArgs
 from nanoeval.recorder import dummy_recorder
+from nanoeval.json_recorder import json_recorder
 from nanoeval.setup import nanoeval_entrypoint
 from swelancer_agent import SimpleAgentSolver
 
@@ -32,7 +33,7 @@ async def main() -> None:
                 concurrency=25,
                 experimental_use_multiprocessing=True,
                 enable_slackbot=False,
-                recorder=dummy_recorder(),
+                recorder=json_recorder(),
                 max_retries=5
             ),
         )
