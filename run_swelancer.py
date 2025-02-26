@@ -7,6 +7,9 @@ load_dotenv()
 from swelancer import SWELancerEval 
 import argparse
 import nanoeval
+import json
+import os
+import datetime
 from nanoeval.evaluation import EvalSpec, RunnerArgs
 from nanoeval.recorder import dummy_recorder
 from nanoeval.json_recorder import json_recorder
@@ -21,24 +24,32 @@ def parse_args():
 async def main() -> None:
     args = parse_args()
     taskset = args.issue_ids if args.issue_ids else None
+    model = "gpt-4o-mini"
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     report = await nanoeval.run(
         EvalSpec(
             # taskset is a list of ISSUE_IDs you wish to evaluate (e.g., ["123", "456_789"])
             eval=SWELancerEval(
-                solver=SimpleAgentSolver(model="gpt-4o"),
+                solver=SimpleAgentSolver(model=model),
                 taskset=taskset
             ),
             runner=RunnerArgs(
                 concurrency=25,
-                experimental_use_multiprocessing=True,
+                experimental_use_multiprocessing=False,
                 enable_slackbot=False,
                 recorder=json_recorder(),
                 max_retries=5
             ),
         )
     )
-    print(report)
+    
+    # Save report to disk with timestamp and model name
+    report_filename = f"swelancer_report_{model}_{timestamp}.json"
+    os.makedirs("reports", exist_ok=True)
+    with open(os.path.join("reports", report_filename), "w") as f:
+        json.dump(report, f, indent=2)
+    print(f"Report saved to reports/{report_filename}")
 
 
 if __name__ == "__main__":
