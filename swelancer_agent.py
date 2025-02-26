@@ -65,12 +65,12 @@ def trim_messages(messages: list[dict[str, Any]], max_tokens: int, model: str = 
         messages.pop(1)
     return messages
 
-def get_model_response(messages: list[dict[str, Any]]) -> str:
+def get_model_response(messages: list[dict[str, Any]], model: str = "gpt-4o") -> str:
     messages = trim_messages(messages, 110000)
     
     chat_completion = client.chat.completions.create(
         messages=messages, # type: ignore
-        model="gpt-4o",
+        model=model,
     )
     return chat_completion.choices[0].message.content # type: ignore
 
